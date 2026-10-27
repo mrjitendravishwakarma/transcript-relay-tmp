@@ -1,0 +1,54 @@
+name: relay
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: fetch
+        continue-on-error: true
+        run: |
+          mkdir -p out
+          python3 -m pip install --quiet youtube-transcript-api yt-dlp || true
+          python3 - <<'PY' || true
+          import json
+          try:
+              from youtube_transcript_api import YouTubeTranscriptApi
+              api = YouTubeTranscriptApi()
+          except Exception as e:
+              open('out/import.err','w').write(repr(e))
+              api = None
+          ids = ["VVsZ4LupGew","2odWQBNJMRc","1Xylvz58p0k"]
+          for vid in ids:
+              if api is None:
+                  break
+              try:
+                  tl = api.list(vid)
+                  langs = [(t.language_code, t.language, t.is_generated) for t in tl]
+                  open('out/%s.langs' % vid, 'w').write(json.dumps(langs, ensure_ascii=False))
+              except Exception as e:
+                  open('out/%s.langs' % vid, 'w').write('ERR ' + type(e).__name__ + ' ' + str(e)[:500])
+              try:
+                  tr = api.fetch(vid, languages=["hi","en"])
+                  segs = [s.text for s in tr]
+                  open('out/%s.txt' % vid, 'w', encoding='utf-8').write(' '.join(segs))
+                  open('out/%s.meta' % vid, 'w').write('youtube-transcript-api segs=%d' % len(segs))
+              except Exception as e:
+                  open('out/%s.err' % vid, 'w').write(type(e).__name__ + ': ' + str(e)[:2000])
+          PY
+          for id in VVsZ4LupGew 2odWQBNJMRc 1Xylvz58p0k; do
+            curl -sL --max-time 90 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36" "https://youtubetotranscript.com/transcript?v=$id" -o "out/$id.html" || true
+          done
+          yt-dlp --write-auto-subs --skip-download --sub-langs "hi,en" --sub-format vtt -o "out/%(id)s" "https://www.youtube.com/watch?v=VVsZ4LupGew" > out/ytdlp.log 2>&1 || true
+          ls -la out
+      - name: commit
+        continue-on-error: true
+        run: |
+          git config user.name "relay-bot"
+          git config user.email "relay-bot@users.noreply.github.com"
+          git add -A
+          git commit -m "fetch results" || true
+          git push || true
